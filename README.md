@@ -1,5 +1,10 @@
 # Datos del curso — Pérdidas Esperadas IFRS 9 con Python (Academia Bayes)
 
+> ⚠️ **En validación — estos archivos van a cambiar.** Una revisión cruzada detectó
+> incoherencias entre tablas (fichas de default sin respaldo en el panel, operaciones castigadas
+> que siguen con saldo vivo y calendario futuro). Se está corrigiendo el generador y las carteras
+> se van a regenerar. **No construyas trabajo sobre esta versión todavía.**
+
 Datasets **100% sintéticos** para uso académico del curso. Ninguna persona ni institución real
 está representada. Generados por Academia Bayes / Nexo Labs.
 
