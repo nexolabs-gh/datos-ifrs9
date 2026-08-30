@@ -12,14 +12,16 @@
 |---|---|
 | Clientes | 15.000 |
 | Operaciones | 25.000 |
-| Operaciones vigentes al corte | 20.659 |
-| Filas del panel mensual | 560.575 |
-| Operaciones que entraron en default | 1.364 |
-| Tasa de default observada | 4,69% |
-| Workouts abiertos a la fecha de corte | 45,1% |
-| Tasa de cura entre los defaults | 16,9% |
+| Operaciones vigentes al corte | 19.859 |
+| Filas del panel mensual | 555.837 |
+| Episodios de incumplimiento | 1.218 |
+| Operaciones que entraron en default | 1.212 |
+| Castigos (bajas contables) | 240 |
+| Tasa de default observada | 4,85% |
+| Workouts abiertos a la fecha de corte | 37,4% |
+| Tasa de cura entre los defaults | 12,0% |
 
-**Mix de producto**: consumo_cuotas 46,1% · hipotecario 24,2% · linea_revolvente 15,7% · tarjeta_credito 14,0%
+**Mix de producto**: consumo_cuotas 46,0% · hipotecario 24,4% · linea_revolvente 15,7% · tarjeta_credito 13,8%
 
 ## Advertencias de uso
 
@@ -28,6 +30,10 @@
 3. Los **revolventes no tienen calendario contractual**: su exposición futura se construye, no se busca en `flujos`.
 4. Hay operaciones con **workout abierto** (`fecha_cierre_workout` vacío). Excluirlas del cálculo de LGD sesga el resultado.
 5. Una fracción de operaciones **no tiene `segmento` asignado**. Un `join` interno las hace desaparecer del cálculo sin aviso.
+6. `defaults` tiene una fila **por episodio**, no por operación: la llave es `id_operacion` + `n_evento`. Agrupar solo por `id_operacion` mezcla dos incumplimientos distintos.
+7. Toda salida del panel está declarada en `motivo_baja`. El **castigo** da de baja el activo: esa operación no aparece al corte ni tiene calendario en `flujos`.
+8. El pago publicado **explica** el saldo, fila a fila y en toda la cartera: `saldo_t = saldo_(t-1)·(1+i) + monto_girado − monto_pagado`. Dos convenciones del dataset: el **mes del desembolso no devenga interés** (el primer interés corre con la primera cuota, al mes siguiente; la cartera legada sí devenga desde su primer mes del panel), y en 90+ el saldo deja de devengar desde el mes siguiente al cruce, con el pago del mes en cero porque el efectivo de la cobranza está en `recuperaciones`.
+9. Una **cura** recupera el activo, no efectivo: recupera exactamente su exposición y **no genera filas en `recuperaciones`**. Su LGD **nominal** es cero; la **descontada es positiva**, porque ese activo vuelve meses después y el valor del dinero en el tiempo es una pérdida real. Es una de las cosas que se discuten en C4.
 
 ## `aconcagua_clientes` — 15.000 filas
 
@@ -43,7 +49,7 @@ Un registro por deudor. El cliente **no** es la unidad de cálculo del ECL: sirv
 | `estado_civil` | str | soltero / casado / divorciado / viudo |
 | `nivel_educacional` | str | básica / media / técnica / universitaria / postgrado |
 | `tipo_empleo` | str | dependiente / independiente / jubilado |
-| `renta_liquida` | float64 · 9,1% vacío | Renta líquida mensual declarada (CLP). **Puede venir vacía** |
+| `renta_liquida` | float64 · 8,9% vacío | Renta líquida mensual declarada (CLP). **Puede venir vacía** |
 | `n_dependientes` | int64 | Número de cargas familiares |
 
 ## `aconcagua_cartera` — 25.000 filas
@@ -61,12 +67,12 @@ Un registro por deudor. El cliente **no** es la unidad de cálculo del ECL: sirv
 | `tasa_interes_anual` | float64 | Tasa contractual anual |
 | `tasa_efectiva_original` | float64 | **EIR — tasa efectiva original.** Incorpora comisiones, seguros y gastos de originación. Es la tasa de descuento que exige IFRS 9; **no** es la tasa contractual |
 | `tipo_amortizacion` | str | francés · sin vencimiento |
-| `cupo_aprobado` | float64 · 70,2% vacío | Línea aprobada (CLP). Solo revolventes; vacío en amortizables |
+| `cupo_aprobado` | float64 · 70,5% vacío | Línea aprobada (CLP). Solo revolventes; vacío en amortizables |
 | `garantia_tipo` | str | sin garantía · hipotecaria · prendaria |
 | `garantia_valor_tasacion` | float64 · 70,1% vacío | Valor de tasación de la garantía (CLP). Vacío si no hay |
 | `segmento` | str · 1,5% vacío | Segmento de riesgo (producto × tramo). Unidad de agrupación del motor |
 
-## `aconcagua_panel` — 560.575 filas
+## `aconcagua_panel` — 555.837 filas
 
 Panel mensual operación × mes con el comportamiento observado. Es el insumo de las matrices de transición, del staging y del roll-forward de la provisión.
 
@@ -74,17 +80,19 @@ Panel mensual operación × mes con el comportamiento observado. Es el insumo de
 |---|---|---|
 | `id_operacion` | str | Llave de la operación |
 | `mes` | str | Mes del panel (YYYY-MM) |
-| `saldo_insoluto` | float64 | Capital vigente al cierre del mes (CLP). Mientras la operación paga sigue el calendario contractual; en mora se congela y devenga interés |
-| `saldo_utilizado` | float64 · 68,7% vacío | Revolventes: monto usado de la línea. Vacío en amortizables |
-| `cupo_vigente` | float64 · 68,7% vacío | Revolventes: línea vigente (se recorta tras deterioro). Vacío en amortizables |
+| `saldo_insoluto` | float64 | Capital vigente **al cierre** del mes (CLP). Sigue la recursión `saldo_t = saldo_(t-1)·(1+i) + monto_girado − monto_pagado`, así que el pago publicado explica el saldo fila a fila. **Dos convenciones del dataset**: (1) el mes del desembolso no devenga interés — el dinero se entrega y el primer interés corre junto con la primera cuota, al mes siguiente; la cartera legada sí devenga desde su primer mes del panel, porque lleva tiempo cursada. (2) En 90+ DPD el saldo deja de devengar desde el mes siguiente al cruce. Ambas son simplificaciones didácticas, **no** exigencias de IFRS 9: la norma (5.4.1 b) manda aplicar la EIR al costo amortizado **neto de provisión** en activos con deterioro crediticio, que no es lo mismo que interés cero |
+| `saldo_utilizado` | float64 · 69,3% vacío | Revolventes: monto usado de la línea. Vacío en amortizables |
+| `cupo_vigente` | float64 · 69,3% vacío | Revolventes: línea vigente (se recorta tras deterioro). Vacío en amortizables |
 | `dias_mora` | int16 | Días de mora al cierre del mes (DPD) |
 | `cuota_pactada` | float64 | Cuota exigible del mes (CLP) |
-| `monto_pagado` | float64 | Monto efectivamente pagado en el mes (CLP) |
+| `monto_girado` | float64 | Entrada de exposición del mes (CLP): el **desembolso** en el mes de cursado de un amortizable, y el **giro** de la línea en un revolvente. Es el término que cierra la ecuación del saldo cuando la exposición sube por dinero entregado y no por interés. Cero el resto de los meses de un amortizable |
+| `monto_pagado` | float64 | Monto efectivamente pagado en el mes (CLP). En el mes de la baja incluye el pago que extingue la deuda. **Durante el workout es cero**: el efectivo de un crédito en cobranza vive en `recuperaciones`, y publicarlo en los dos lados lo contaría dos veces |
 | `marca_default` | bool | Verdadero si la operación está en 90+ DPD ese mes |
 | `marca_forbearance` | bool | Renegociación o reprogramación. **La marca es persistente**: sigue encendida aunque el pago se normalice (criterio cualitativo de SICR) |
 | `en_watchlist` | bool | Alerta interna de seguimiento del mes. Se enciende **antes** que la mora |
+| `motivo_baja` | str · 99,1% vacío | Causa por la que la operación **deja de existir** después de este mes: `prepago` · `vencimiento` · `castigo` · `resolución de workout`. Vacío mientras sigue vigente. En el mes de la baja el saldo queda en cero y, si la deuda se extingue pagando, `monto_pagado` recoge el pago final: **la exposición nunca desaparece sin causa observable** |
 
-## `aconcagua_flujos` — 1.003.840 filas
+## `aconcagua_flujos` — 1.010.742 filas
 
 Calendario contractual de pagos futuros desde la fecha de corte. **Solo operaciones amortizables vigentes**: los revolventes no tienen calendario, y su exposición futura hay que construirla con un factor de conversión sobre la línea.
 
@@ -98,32 +106,39 @@ Calendario contractual de pagos futuros desde la fecha de corte. **Solo operacio
 | `flujo_total` | float64 | Cuota total del período (CLP) |
 | `saldo_post` | float64 | Saldo insoluto después de pagar la cuota (CLP) |
 
-## `aconcagua_recuperaciones` — 3.282 filas
+## `aconcagua_recuperaciones` — 1.876 filas
 
-Eventos de flujo del proceso de recuperación (workout) de las operaciones que entraron en default. Varias filas por operación.
+Eventos de flujo del proceso de recuperación (workout) de las operaciones que entraron en default. Varias filas por episodio. **El castigo no está acá**: es una baja contable, no un ingreso, y vive en `defaults`.
 
 | Columna | Tipo | Descripción |
 |---|---|---|
 | `id_operacion` | str | Llave de la operación |
-| `fecha_default` | str | Mes de entrada en default (90+ DPD) |
+| `n_evento` | int64 | Número de episodio de incumplimiento de esa operación (1, 2, …). Junto con `id_operacion` forma la llave del workout |
+| `n_flujo` | int64 | Número correlativo del flujo dentro de su episodio (1, 2, …), en orden de `fecha_flujo`. **`id_operacion` + `n_evento` + `n_flujo` es la llave única de esta tabla**: dos flujos del mismo episodio y el mismo mes son eventos distintos, no un duplicado |
+| `fecha_default` | str | Mes de entrada en default (90+ DPD) del episodio |
 | `fecha_flujo` | str | Mes en que ocurre el evento de recuperación |
-| `monto_recuperado` | int64 | Monto recuperado en el evento (CLP) |
-| `tipo` | str | pago voluntario · ejecución de garantía · castigo |
+| `monto_recuperado` | int64 | Monto recuperado en el evento (CLP), **nominal**: para la LGD hay que descontarlo a la EIR desde `fecha_default` |
+| `tipo` | str | pago voluntario · ejecución de garantía |
 | `costos_directos` | int64 | Costos de cobranza asociados al evento (CLP) |
-| `fecha_cierre_workout` | str · 27,1% vacío | Mes de cierre del proceso. **Vacío si el workout sigue abierto a la fecha de corte** |
+| `fecha_cierre_workout` | str · 18,6% vacío | Mes de cierre del proceso. **Vacío si el workout sigue abierto a la fecha de corte** |
 | `marca_cura` | bool | La operación volvió a estar al día de forma sostenida |
 
-## `aconcagua_defaults` — 1.364 filas
+## `aconcagua_defaults` — 1.218 filas
 
-Ficha resumen: un registro por operación que entró en default. Es la base natural para estimar LGD.
+Ficha resumen: **un registro por episodio de incumplimiento**, no por operación. Una operación que se cura y vuelve a caer aparece dos veces, con `n_evento` 1 y 2. Es la base natural para estimar LGD.
 
 | Columna | Tipo | Descripción |
 |---|---|---|
 | `id_operacion` | str | Llave de la operación |
+| `n_evento` | int64 | Número de episodio de incumplimiento de esa operación (1, 2, …) |
 | `fecha_default` | str | Mes de entrada en default |
-| `saldo_al_default` | float64 | Exposición al momento del incumplimiento (CLP) |
-| `fecha_cierre_workout` | str · 45,1% vacío | Mes de cierre. **Vacío = workout abierto al corte** |
-| `marca_cura` | bool | La operación se curó |
+| `saldo_al_default` | float64 | Exposición al momento del incumplimiento (CLP). Es el `saldo_insoluto` que el panel publica ese mismo mes |
+| `fecha_cierre_workout` | str · 37,4% vacío | Mes de cierre. **Vacío = workout abierto al corte** |
+| `marca_cura` | bool | El episodio se cerró porque la operación volvió a estar al día |
+| `desenlace` | str | cura · pago voluntario · ejecución de garantía · castigo · abierto |
+| `valor_activo_recuperado` | float64 | Saldo con que la operación vuelve a estar sana tras una **cura** (CLP). Una cura recupera el activo —exactamente su exposición— y no genera flujos en `recuperaciones`, así que su LGD nominal es cero. Descontado a la EIR desde la fecha de default **no** lo es: recuperar el mismo peso un año después vale menos. Cero en los demás desenlaces |
+| `fecha_castigo` | str · 80,3% vacío | Mes del castigo, si lo hubo. **Ese mes la operación sale del panel**. El castigo se gatilla por **plazo de mora** (CMF Cap. B-2): ~6 meses en consumo sin garantía real, ~36 con garantía real, ~48 en hipotecario. Por eso dentro de esta ventana castigan consumo, tarjetas y líneas, y el hipotecario arrastra su workout sin castigarse |
+| `monto_castigado` | float64 · 80,3% vacío | Parte de la exposición dada de baja contablemente en el castigo (CLP): lo que la cobranza no alcanzó a recuperar cuando venció el plazo normativo. Castigo + recuperaciones suman la exposición al incumplimiento |
 
 ## `aconcagua_macro_historico` — 48 filas
 
