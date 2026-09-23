@@ -1,0 +1,32 @@
+{
+ "corte": "2026-06",
+ "t0": "2025-06",
+ "ventana_pit": [
+  "2025-07",
+  "2026-06"
+ ],
+ "archivos": {
+  "aconcagua_agrupacion.parquet": "a2b056b851a1f498",
+  "aconcagua_cartera.parquet": "cb6585111ed00035",
+  "aconcagua_curva_pd.parquet": "d60c973d1294fb37",
+  "aconcagua_defaults.parquet": "b5409c0ba225659a",
+  "aconcagua_flujos.parquet": "c8845cce68db6dd2",
+  "aconcagua_lgd.parquet": "e2f4de0d9b538e0f",
+  "aconcagua_macro_escenarios.parquet": "29ff9c4231a3d59a",
+  "aconcagua_macro_historico.parquet": "d015a73ec1b38cae",
+  "aconcagua_panel.parquet": "a4cbfda7793b2a31",
+  "aconcagua_recuperaciones.parquet": "2b41f34c93f31117",
+  "aconcagua_vivas.parquet": "d674d84a35b85b27",
+  "llanquihue_agrupacion.parquet": "7637114b992eb691",
+  "llanquihue_cartera.parquet": "7b9cff7f9d9bcac3",
+  "llanquihue_curva_pd.parquet": "aab0bef5356139d9",
+  "llanquihue_defaults.parquet": "8c5a6ff0ebbc3039",
+  "llanquihue_flujos.parquet": "a249ac8592a866a7",
+  "llanquihue_lgd.parquet": "584842d8534d0340",
+  "llanquihue_macro_escenarios.parquet": "9de1dbabebb51ae8",
+  "llanquihue_macro_historico.parquet": "1cd6b5ac21aafca3",
+  "llanquihue_panel.parquet": "17f6d3140548ad75",
+  "llanquihue_recuperaciones.parquet": "f5a2ee3dfdf115b8",
+  "llanquihue_vivas.parquet": "79eed53c7b8a9950"
+ }
+}
