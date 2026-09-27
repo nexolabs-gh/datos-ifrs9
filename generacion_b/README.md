@@ -19,6 +19,7 @@ def leer(tabla, cartera="aconcagua"):
 | `agrupacion` | Clase 3 → 6, 7, 8 | una fila por par (`segmento`, `producto`) | `grupo`: donde se estima la curva de PD (estándar y preferente se juntan; vigilancia va sola). `segmento` puede venir vacío: igual tiene grupo |
 | `curva_pd` | Clase 3 → 6, 7, 8 | una fila por (`grupo`, `edad`) | `edad` = meses **desde el cursado** (1, 2, …); `hazard` = probabilidad de caer en 90+ en esa edad si no cayó antes (fracción 0–1, PIT: últimos 12 meses); `pd_acumulada_desde_origen` = 1 − Π(1 − hazard) desde la edad 1; `es_cola` = la edad está después de las 36 observadas y se extiende con el promedio de los 6 últimos hazards |
 | `lgd` | Clase 4 → 6, 7, 8 | una fila por `garantia_tipo` | `lgd` = LGD Best Estimate (fracción 0–1): workouts cerrados + abiertos proyectados, descontados a la EIR |
+| `curva_pd_ciclo` | Clase 7 → 8 | una fila por (`grupo`, `edad`) | como `curva_pd`, pero estimada con **todos** los meses del panel (el ciclo completo): el nivel de largo plazo al que vuelve el motor desde el mes 49 (método A3, `manifiesto.json → metodo_lote_4`) |
 | `manifiesto.json` | — | — | corte, T0, ventana PIT y la huella (sha256) de cada archivo publicado |
 
 **Ojo con `curva_pd`:** la edad cuenta desde que se otorgó el crédito, no desde el corte. La PD de una operación viva
@@ -42,6 +43,7 @@ la foto de backtesting y roll-forward). Montos en **CLP** (pesos, sin escalar); 
 | `ead` | C5 → C6–C8 | operación viva al corte × mes futuro (1–240) | 4.766.160 / 7.896.480 | 10,8 / 9,0 MB |
 | `etapas` | C6 → C7, C8 | operación viva al corte | 19.859 / 32.902 | 0,9 / 1,5 MB |
 | `escenarios` | C7 → C8 | escenario × mes futuro (1–240) | 720 / 720 | < 0,1 MB |
+| `curva_pd_ciclo` | C7 → C8 | grupo × edad desde el cursado | 3.176 / 3.144 | < 0,1 MB |
 | `ecl_escenarios` | C7 → C8 | operación viva al corte × escenario | 59.577 / 98.706 | 0,8 / 1,3 MB |
 | `vivas_t0` | C8 | operación viva en T0 | 15.231 / 21.602 | 0,7 / 1,0 MB |
 | `curva_pd_t0` | C8 | grupo × edad desde el cursado | 397 / 393 | < 0,1 MB |
@@ -107,27 +109,50 @@ Para mover el umbral θ sin recalcular nada: `etapa = 3` si `gatillo_mora_90`; `
 `ecl_lifetime` o `ecl_12m` según su etapa nueva. La PD de origen a 240 meses (la que usa C7) es la misma fórmula con
 `factor_origen` y la vida remanente completa (hasta 240 meses).
 
-## `escenarios` — el multiplicador de nivel por escenario (C7)
+## `escenarios` — la trayectoria de cada escenario (C7)
+
+El hazard de una operación en el mes futuro h tiene tres tramos (variante **A3**, la corrección del largo plazo
+decidida el 2026-09-27):
+
+- **proyección** (h = 1–24): hazard de `curva_pd` × `multiplicador_pit`(h) — el satélite con la macro del escenario;
+- **reversión** (h = 25–48): hazard de `curva_pd` × e^(log m), con
+  log m = cota[(1 − `w_ciclo`) · `log_ancla` + `w_ciclo` · log(`curva_pd_ciclo` ÷ `curva_pd`)], **por operación**, a
+  su edad, y la cota = recortar log m a [`log_m_piso`, `log_m_tope`]; 0 si alguno de los dos hazards es 0;
+- **TTC** (h = 49–240): el hazard de `curva_pd_ciclo` — la curva del ciclo por grupo y edad, igual en los tres.
+
+Siempre con tope 1 y cero después de la vida remanente. Las dos curvas se leen a la edad de la operación en ese mes
+(edad al corte + h). Es todo lo que un notebook necesita: no hay que recalcular el satélite.
 
 | Columna | Tipo | Unidad | Qué es |
 |---|---|---|---|
 | `escenario` | texto | — | `base`, `adverso` u `optimista` |
 | `mes_futuro` | int16 | meses | h = 1…240 (h = 1 es 2026-07) |
-| `tramo` | texto | — | `proyección` (1–24: el satélite con la macro del escenario) · `reversión` (25–48: vuelta lineal **en logaritmo** al nivel de largo plazo) · `TTC` (49–240: el nivel de largo plazo, igual en los tres: 1 ÷ F_PIT, el hazard vuelve a la curva del ciclo) |
+| `tramo` | texto | — | `proyección` (1–24) · `reversión` (25–48) · `TTC` (49–240): qué fórmula de arriba aplica |
 | `peso` | float64 | probabilidad | La ponderación publicada en `macro_escenarios` (0,5 / 0,3 / 0,2); constante por escenario, suman 1 |
-| `multiplicador` | float64 | veces | m(h) = f̂(h) ÷ f̂(ventana reciente): multiplica el hazard de `curva_pd` en el mes futuro h (con tope 1). Acotado entre el mejor mes observado y 1,5 × el peor. **Es el modelo: lo que se provisiona y se firma** |
-| `multiplicador_overlay` | float64 | veces | `multiplicador` × e^(brecha de anclaje): el satélite anclado al nivel **observado** de la ventana reciente, no al ajustado (A: +23,6 %; B: +11,1 %). Es el overlay **propuesto y rechazado** de C8: duplica el anclaje, porque `curva_pd` ya es la PIT de esa misma ventana. **No se provisiona ni se firma** |
-| `acotado` | bool | — | El mes quedó en la cota (A: 0 / 34 / 1 meses en base / adverso / optimista; B: 0 / 12 / 0) |
+| `multiplicador_pit` | float64 | veces | m(h) = f̂(h) ÷ f̂(ventana reciente) sobre la curva PIT, acotado entre el mejor mes observado y 1,5 × el peor. **Solo en la proyección; NaN después** (no hay multiplicador escalar en la reversión ni en el TTC). Reemplaza a la columna `multiplicador` de antes |
+| `acotado_proyeccion` | bool | — | El m(h) de la proyección quedó en la cota (A: 0 / 21 / 1 meses en base / adverso / optimista; B: 0 / 12 / 0). `False` fuera de la proyección |
+| `log_ancla` | float64 | log | Constante por escenario: log de la proyección **sin acotar** del mes 24 relativa al ancla, log f̂(24) − log f̂(reciente). Es el punto de partida de la reversión |
+| `w_ciclo` | float64 | 0–1 | Avance de la reversión hacia la curva del ciclo: 0 en la proyección, (h − 24) ÷ 24 en la reversión, 1 en el TTC |
+| `log_m_piso`, `log_m_tope` | float64 | log | La cota, en log del multiplicador (constantes): log del mejor mes observado y de 1,5 × el peor, menos log f̂(reciente). Con ellas `acotado_proyeccion` y el recorte de la reversión |
+| `ops_acotadas` | int32 | operaciones | En la reversión, cuántas vivas quedan con su log m en la cota ese mes; 0 fuera de ella (A: 186.499 operación-mes en el adverso, 0 en base y optimista; B: 0). La cota se cuenta y se reporta |
+| `factor_overlay` | float64 | veces | Constante: e^(brecha de anclaje) = nivel **observado** ÷ ajustado de la ventana reciente (A: 1,236; B: 1,111). Es el overlay **propuesto y rechazado** de C8 (el hazard de los 240 meses × este factor): duplica el anclaje, porque `curva_pd` ya es la PIT de esa ventana. **No se provisiona ni se firma**. Reemplaza a `multiplicador_overlay` |
 
 Satélite elegido (filtro duro Durbin-Watson 1,6–2,4 y signo, después el indicador multi-criterio): A
 `desempleo(t−3) + IMACEC(t−3)`; B `IMACEC(t−3) + IPC(t−3)`.
 
-**Nivel de largo plazo (TTC).** f = observados ÷ esperados con la curva por edad de todo el panel, así que en el
-ciclo completo Σ observados = Σ esperados: el nivel del ciclo es f = 1. La curva PIT (`curva_pd`) está F_PIT veces
-sobre ella, con F_PIT = Σ observados ÷ Σ esperados en la ventana 2025-07…2026-06 (A: 1,877; B: 1,821). Para que el
-hazard de largo plazo vuelva a la curva del ciclo, el tramo TTC multiplica por **1 ÷ F_PIT** (A: 0,533; B: 0,549).
-La media de log f, que usaba la v1, no es un nivel sino el «mes típico» de una serie muy sesgada (meses con cero
-defaults, el +0,5): dejaba el largo plazo en 0,214 (A) y 0,090 (B) veces el nivel reciente, muy bajo el ciclo.
+**Por qué el largo plazo es una curva y no un nivel.** f = observados ÷ esperados con la curva por edad de todo el
+panel. La curva PIT (`curva_pd`) está sobre la del ciclo, pero **no en la misma proporción en todas las edades**: en
+la ventana reciente, en promedio, 1,877 veces (A; B: 1,821), y en las edades que pesan en los meses 49–240, solo
+1,07 veces. Ningún escalar sobre la PIT devuelve la curva del ciclo: 1 ÷ 1,877 (la variante A2, publicada un día)
+dejaba esa cola en 0,57× el ciclo, y la media de log f de la v1 (0,214 en A, 0,090 en B), en ~0,23×. Por eso desde el
+mes 49 el hazard **es** `curva_pd_ciclo`. A la cartera, el tramo TTC queda en 0,93× la PIT en A (0,84× en B).
+
+## `curva_pd_ciclo` — la curva del ciclo (C7)
+
+Mismas columnas, largo y reglas que `curva_pd` (`grupo`, `edad`, `hazard`, `pd_acumulada_desde_origen`, `es_cola`;
+cola = promedio de los 6 últimos hazards observados), con los mismos grupos del corte, pero con **todos los meses del
+panel** en vez de la ventana 2025-07…2026-06. La propiedad que la define (y que el builder afirma grupo a grupo): con
+ella, los esperados del panel completo son exactamente sus eventos (A: 974 = 974). La PIT no la cumple.
 
 ## `ecl_escenarios` — el ECL por operación y escenario (C7)
 
@@ -136,10 +161,11 @@ defaults, el +0,5): dejaba el largo plazo en 0,214 (A) y 0,090 (B) veces el nive
 | `id_operacion` | texto | — | La operación (las tres corridas cubren todas las vivas) |
 | `escenario` | texto | — | `base`, `adverso` u `optimista` |
 | `etapa` | int8 | 1, 2, 3 | La etapa **recalculada en ese escenario** (la PD de hoy cambia con el escenario; la de origen no), con vida completa |
-| `ecl` | float64 | CLP | ECL de la operación en ese escenario, vida completa (hasta 240 meses) |
+| `ecl` | float64 | CLP | ECL de la operación en ese escenario con el hazard A3, vida completa (hasta 240 meses) |
 
-ECL ponderado **sobre salidas**: Σ peso × `ecl` (A: 5.086,3 MM; por escenario 3.004,4 / 10.290,2 / 2.485,2 · B:
-6.047,1 MM). **Es el ECL del modelo y es lo que se firma**; el ECL a 12 meses no depende del TTC (A: 2.551,7 MM).
+ECL ponderado **sobre salidas**: Σ peso × `ecl` (A: 5.555,5 MM; por escenario 3.507,3 / 10.731,2 / 2.912,8 · B:
+6.234,6 MM; 3.524,4 / 12.835,0 / 3.109,4). **Es el ECL del modelo y es lo que se firma**; el ECL a 12 meses no
+depende del largo plazo (A: 2.551,7 MM; B: 4.076,1 MM).
 
 ## Las fotos de T0 (C8: backtesting y roll-forward)
 
@@ -161,23 +187,27 @@ decidida con los eventos vistos hasta T0 y LGD con los workouts conocidos hasta 
 
 Roll-forward T0 → corte (el orden es parte del método): inicial (`etapas_t0.ecl_politica`) → bajas → exposición y
 edad (EAD y edad del corte, modelo y etapa de T0) → cambio de etapa → modelo (curvas, LGD y agrupación del corte,
-vida completa) → escenarios → altas → overlay → final = ECL firmado. **Se firma el modelo: la línea overlay vale 0.**
-El overlay de la brecha de anclaje (el motor con `multiplicador_overlay`, menos el modelo) se reporta aparte, como
-propuesto y rechazado (A: 800,3 MM; B: 398,9 MM). En A: 297,3 → 5.086,3 MM (escenarios −317,4; altas 1.768,8).
+vida completa, sin escenarios) → escenarios (la trayectoria A3 completa) → altas → overlay → final = ECL firmado.
+**Se firma el modelo: la línea overlay vale 0.** El overlay de la brecha de anclaje (el hazard A3 × `factor_overlay`,
+menos el modelo) se reporta aparte, como propuesto y rechazado (A: 849,9 MM; B: 423,7 MM). En A: 297,3 → 5.555,5 MM
+(escenarios +10,5; altas 1.910,2); en B: 337,1 → 6.234,6 MM (escenarios −980,1; altas 3.256,7).
 
 ## Cómo se verifican
 
 `01_datos/generador/construir_intermedios.py --lote 3|4`, en tres capas y sin escribir nada si algo falla:
 (1) controles sobre lo que se publica, leído de vuelta desde los bytes del parquet (grano, unicidad, cobertura de
-toda viva, rangos, etiquetas exactas, reglas de etapa y de EAD, el tramo TTC = 1 ÷ F_PIT, el ECL publicado = el del
-`multiplicador` y la firma = el modelo); (2) un oráculo que ejecuta **literalmente** las celdas del Lab 4 de la v1
-sobre A y B y exige igualdad vector por vector —incluido el roll-forward armado solo con estos archivos—; (3) los
-números publicados de la v1 (`numeros_c5` a `numeros_c8`) en A. Cada control se valida mutando los datos en
-`mutaciones_intermedios.py`.
+toda viva, rangos, etiquetas exactas, reglas de etapa y de EAD, la forma de la trayectoria —`multiplicador_pit` solo
+en la proyección, `w_ciclo`, ancla y cota coherentes, las vivas en la cota recontadas—, la propiedad de la curva del
+ciclo, el ECL publicado = el motor A3 armado solo con lo publicado y la firma = el modelo); (2) un oráculo que ejecuta
+**literalmente** las celdas del Lab 4 de la v1 sobre A y B y exige igualdad vector por vector en todo lo que A3 no
+toca; (3) los números publicados de la v1 (`numeros_c5` a `numeros_c8`) en A. Cada control se valida mutando los
+datos en `mutaciones_intermedios.py`.
 
-**Desvío declarado respecto de la v1 (lote 4).** Dos correcciones de método: el nivel TTC (arriba) y la firma sin
-overlay. El oráculo de la v1 corre literal salvo la línea que define el TTC; los números de la v1 que cambian por eso
-(multiplicador desde el mes 36, ECL y etapas por escenario, trampa #2, roll-forward, lo reportado) se afirman
-**distintos** de la v1, y sus valores nuevos se contrastan en A con un diagnóstico independiente que primero reproduce
-lo publicado antes y después cambia solo el método. Todo lo que no depende del TTC (fotos de T0, `etapas`, curvas,
-EAD, LGD) sigue igual bit a bit.
+**Desvío declarado respecto de la v1 (lote 4).** Dos correcciones de método: el largo plazo es la curva del ciclo
+(A3, arriba) y se firma sin overlay. El oráculo de la v1 corre literal y se compara en lo que A3 no toca (satélite,
+meses 1–24, ancla y cota, factor del overlay, fotos de T0, roll-forward hasta el paso «modelo»); los números de la v1
+que cambian (multiplicador de la cartera desde el mes 36, meses acotados, ECL y etapas por escenario, trampa #2,
+roll-forward, lo reportado) se afirman **distintos** de la v1, y sus valores nuevos se contrastan en A con un
+diagnóstico independiente (`00_plan/diagnostico_c7_c8/diag_a3.py`) que primero reproduce lo publicado y después cambia
+solo el método (B se contrastó con el mismo código). Todo lo que no depende del largo plazo (fotos de T0, `etapas`,
+curvas PIT, EAD, LGD) sigue igual bit a bit.
