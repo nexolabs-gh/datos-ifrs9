@@ -113,14 +113,21 @@ Para mover el umbral θ sin recalcular nada: `etapa = 3` si `gatillo_mora_90`; `
 |---|---|---|---|
 | `escenario` | texto | — | `base`, `adverso` u `optimista` |
 | `mes_futuro` | int16 | meses | h = 1…240 (h = 1 es 2026-07) |
-| `tramo` | texto | — | `proyección` (1–24: el satélite con la macro del escenario) · `reversión` (25–48: vuelta lineal **en logaritmo** al nivel de largo plazo) · `TTC` (49–240: el nivel de largo plazo, igual en los tres) |
+| `tramo` | texto | — | `proyección` (1–24: el satélite con la macro del escenario) · `reversión` (25–48: vuelta lineal **en logaritmo** al nivel de largo plazo) · `TTC` (49–240: el nivel de largo plazo, igual en los tres: 1 ÷ F_PIT, el hazard vuelve a la curva del ciclo) |
 | `peso` | float64 | probabilidad | La ponderación publicada en `macro_escenarios` (0,5 / 0,3 / 0,2); constante por escenario, suman 1 |
-| `multiplicador` | float64 | veces | m(h) = f̂(h) ÷ f̂(ventana reciente): multiplica el hazard de `curva_pd` en el mes futuro h (con tope 1). Acotado entre el mejor mes observado y 1,5 × el peor |
-| `multiplicador_overlay` | float64 | veces | `multiplicador` × e^(brecha de anclaje): el satélite anclado al nivel **observado** de la ventana reciente, no al ajustado. Es el overlay de C8 (A: +23,6 %; B: +11,1 %); **no es el modelo** |
-| `acotado` | bool | — | El mes quedó en la cota (A: 0 / 31 / 1 meses en base / adverso / optimista; B: 0 / 12 / 0) |
+| `multiplicador` | float64 | veces | m(h) = f̂(h) ÷ f̂(ventana reciente): multiplica el hazard de `curva_pd` en el mes futuro h (con tope 1). Acotado entre el mejor mes observado y 1,5 × el peor. **Es el modelo: lo que se provisiona y se firma** |
+| `multiplicador_overlay` | float64 | veces | `multiplicador` × e^(brecha de anclaje): el satélite anclado al nivel **observado** de la ventana reciente, no al ajustado (A: +23,6 %; B: +11,1 %). Es el overlay **propuesto y rechazado** de C8: duplica el anclaje, porque `curva_pd` ya es la PIT de esa misma ventana. **No se provisiona ni se firma** |
+| `acotado` | bool | — | El mes quedó en la cota (A: 0 / 34 / 1 meses en base / adverso / optimista; B: 0 / 12 / 0) |
 
 Satélite elegido (filtro duro Durbin-Watson 1,6–2,4 y signo, después el indicador multi-criterio): A
 `desempleo(t−3) + IMACEC(t−3)`; B `IMACEC(t−3) + IPC(t−3)`.
+
+**Nivel de largo plazo (TTC).** f = observados ÷ esperados con la curva por edad de todo el panel, así que en el
+ciclo completo Σ observados = Σ esperados: el nivel del ciclo es f = 1. La curva PIT (`curva_pd`) está F_PIT veces
+sobre ella, con F_PIT = Σ observados ÷ Σ esperados en la ventana 2025-07…2026-06 (A: 1,877; B: 1,821). Para que el
+hazard de largo plazo vuelva a la curva del ciclo, el tramo TTC multiplica por **1 ÷ F_PIT** (A: 0,533; B: 0,549).
+La media de log f, que usaba la v1, no es un nivel sino el «mes típico» de una serie muy sesgada (meses con cero
+defaults, el +0,5): dejaba el largo plazo en 0,214 (A) y 0,090 (B) veces el nivel reciente, muy bajo el ciclo.
 
 ## `ecl_escenarios` — el ECL por operación y escenario (C7)
 
@@ -131,7 +138,8 @@ Satélite elegido (filtro duro Durbin-Watson 1,6–2,4 y signo, después el indi
 | `etapa` | int8 | 1, 2, 3 | La etapa **recalculada en ese escenario** (la PD de hoy cambia con el escenario; la de origen no), con vida completa |
 | `ecl` | float64 | CLP | ECL de la operación en ese escenario, vida completa (hasta 240 meses) |
 
-ECL ponderado **sobre salidas**: Σ peso × `ecl` (A: 4.632,5 MM; por escenario 2.603,6 / 9.702,4 / 2.100,0).
+ECL ponderado **sobre salidas**: Σ peso × `ecl` (A: 5.086,3 MM; por escenario 3.004,4 / 10.290,2 / 2.485,2 · B:
+6.047,1 MM). **Es el ECL del modelo y es lo que se firma**; el ECL a 12 meses no depende del TTC (A: 2.551,7 MM).
 
 ## Las fotos de T0 (C8: backtesting y roll-forward)
 
@@ -153,13 +161,23 @@ decidida con los eventos vistos hasta T0 y LGD con los workouts conocidos hasta 
 
 Roll-forward T0 → corte (el orden es parte del método): inicial (`etapas_t0.ecl_politica`) → bajas → exposición y
 edad (EAD y edad del corte, modelo y etapa de T0) → cambio de etapa → modelo (curvas, LGD y agrupación del corte,
-vida completa) → escenarios → altas → overlay → final = ECL reportado. En A: 297,3 → 5.387,9 MM.
+vida completa) → escenarios → altas → overlay → final = ECL firmado. **Se firma el modelo: la línea overlay vale 0.**
+El overlay de la brecha de anclaje (el motor con `multiplicador_overlay`, menos el modelo) se reporta aparte, como
+propuesto y rechazado (A: 800,3 MM; B: 398,9 MM). En A: 297,3 → 5.086,3 MM (escenarios −317,4; altas 1.768,8).
 
 ## Cómo se verifican
 
 `01_datos/generador/construir_intermedios.py --lote 3|4`, en tres capas y sin escribir nada si algo falla:
 (1) controles sobre lo que se publica, leído de vuelta desde los bytes del parquet (grano, unicidad, cobertura de
-toda viva, rangos, etiquetas exactas, reglas de etapa y de EAD); (2) un oráculo que ejecuta **literalmente** las
-celdas del Lab 4 de la v1 sobre A y B y exige igualdad vector por vector —incluido el roll-forward armado solo con
-estos archivos—; (3) los números publicados de la v1 (`numeros_c5` a `numeros_c8`) en A. Cada control se valida
-mutando los datos en `mutaciones_intermedios.py`.
+toda viva, rangos, etiquetas exactas, reglas de etapa y de EAD, el tramo TTC = 1 ÷ F_PIT, el ECL publicado = el del
+`multiplicador` y la firma = el modelo); (2) un oráculo que ejecuta **literalmente** las celdas del Lab 4 de la v1
+sobre A y B y exige igualdad vector por vector —incluido el roll-forward armado solo con estos archivos—; (3) los
+números publicados de la v1 (`numeros_c5` a `numeros_c8`) en A. Cada control se valida mutando los datos en
+`mutaciones_intermedios.py`.
+
+**Desvío declarado respecto de la v1 (lote 4).** Dos correcciones de método: el nivel TTC (arriba) y la firma sin
+overlay. El oráculo de la v1 corre literal salvo la línea que define el TTC; los números de la v1 que cambian por eso
+(multiplicador desde el mes 36, ECL y etapas por escenario, trampa #2, roll-forward, lo reportado) se afirman
+**distintos** de la v1, y sus valores nuevos se contrastan en A con un diagnóstico independiente que primero reproduce
+lo publicado antes y después cambia solo el método. Todo lo que no depende del TTC (fotos de T0, `etapas`, curvas,
+EAD, LGD) sigue igual bit a bit.

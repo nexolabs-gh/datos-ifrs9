@@ -13,8 +13,8 @@
   "aconcagua_defaults.parquet": "b5409c0ba225659a",
   "aconcagua_ead.parquet": "07717ade6ef9dfb6",
   "aconcagua_ead_t0.parquet": "187b21786cdd0f95",
-  "aconcagua_ecl_escenarios.parquet": "9a79e1fb6a9543c3",
-  "aconcagua_escenarios.parquet": "37c1c9173ec249a8",
+  "aconcagua_ecl_escenarios.parquet": "75857c8d285bb0f8",
+  "aconcagua_escenarios.parquet": "6bb4d18068448857",
   "aconcagua_etapas.parquet": "16445717b3c4b993",
   "aconcagua_etapas_t0.parquet": "f6f9432b1ebd18bb",
   "aconcagua_flujos.parquet": "c8845cce68db6dd2",
@@ -33,8 +33,8 @@
   "llanquihue_defaults.parquet": "8c5a6ff0ebbc3039",
   "llanquihue_ead.parquet": "c5c9c503aa3cd094",
   "llanquihue_ead_t0.parquet": "2e9ca9ef49e4085b",
-  "llanquihue_ecl_escenarios.parquet": "5883fd4d3e554ab2",
-  "llanquihue_escenarios.parquet": "6c760f82796209b2",
+  "llanquihue_ecl_escenarios.parquet": "61c5f58ab8f2d562",
+  "llanquihue_escenarios.parquet": "f1c0607b5b510036",
   "llanquihue_etapas.parquet": "6f198aa0cf958143",
   "llanquihue_etapas_t0.parquet": "a6eede7700ba8582",
   "llanquihue_flujos.parquet": "a249ac8592a866a7",
@@ -145,5 +145,9 @@
   "rs_meses": 24,
   "reversion_meses": 24,
   "k_cota": 1.5
+ },
+ "metodo_lote_4": {
+  "nivel_ttc": "curva del ciclo: m_TTC = 1 / F_PIT (suma de observados / suma de esperados en la ventana PIT)",
+  "firma": "ECL del modelo (multiplicador); multiplicador_overlay es el overlay propuesto y rechazado (duplica el anclaje)"
  }
 }
