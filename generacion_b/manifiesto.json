@@ -14,10 +14,10 @@
   "aconcagua_defaults.parquet": "b5409c0ba225659a",
   "aconcagua_ead.parquet": "07717ade6ef9dfb6",
   "aconcagua_ead_t0.parquet": "187b21786cdd0f95",
-  "aconcagua_ecl_escenarios.parquet": "2e5e6ae3cd0d06a8",
+  "aconcagua_ecl_escenarios.parquet": "90a1ac6a91584732",
   "aconcagua_escenarios.parquet": "e16f085b73448009",
-  "aconcagua_etapas.parquet": "16445717b3c4b993",
-  "aconcagua_etapas_t0.parquet": "f6f9432b1ebd18bb",
+  "aconcagua_etapas.parquet": "cda994aa2cd48977",
+  "aconcagua_etapas_t0.parquet": "2904ff306a8ef4b4",
   "aconcagua_flujos.parquet": "c8845cce68db6dd2",
   "aconcagua_lgd.parquet": "e2f4de0d9b538e0f",
   "aconcagua_lgd_t0.parquet": "3d8d2d9b0eda7ea2",
@@ -35,10 +35,10 @@
   "llanquihue_defaults.parquet": "8c5a6ff0ebbc3039",
   "llanquihue_ead.parquet": "c5c9c503aa3cd094",
   "llanquihue_ead_t0.parquet": "2e9ca9ef49e4085b",
-  "llanquihue_ecl_escenarios.parquet": "fa2354464f9558f3",
+  "llanquihue_ecl_escenarios.parquet": "a64cab417799ca5b",
   "llanquihue_escenarios.parquet": "8e417ed294724f44",
-  "llanquihue_etapas.parquet": "6f198aa0cf958143",
-  "llanquihue_etapas_t0.parquet": "a6eede7700ba8582",
+  "llanquihue_etapas.parquet": "4ee73822b6c507b4",
+  "llanquihue_etapas_t0.parquet": "627d36f1218328ff",
   "llanquihue_flujos.parquet": "a249ac8592a866a7",
   "llanquihue_lgd.parquet": "584842d8534d0340",
   "llanquihue_lgd_t0.parquet": "5ff3b25e8ccfdbbd",
@@ -157,6 +157,12 @@
   "proyeccion": "meses 1-24: hazard de curva_pd x multiplicador_pit",
   "reversion": "meses 25-48: hazard de curva_pd x exp(cota[(1 - w_ciclo) * log_ancla + w_ciclo * log(curva_pd_ciclo / curva_pd)]), por operacion a su edad; cota = [log_m_piso, log_m_tope]",
   "largo_plazo": "meses 49-240: hazard de curva_pd_ciclo (la curva del ciclo por grupo y edad)",
+  "etapa": "una por operacion: la PD lifetime ponderada por los pesos (240 meses, A3) contra la de origen, con la politica de C6 (umbral 2, 30 y 90 dias, cualitativo); con esa etapa fija, el ECL de cada escenario (12 meses o vida) y su promedio ponderado",
   "firma": "ECL del modelo; factor_overlay es el overlay propuesto y rechazado (duplica el anclaje)"
+ },
+ "reglas_c6": {
+  "nivel_de_origen": "factor_origen = nivel (observados / esperados por edad, cascada grupo -> producto -> cartera con 15 defaults) de los 12 meses que terminan en el mes de cursado / nivel de la ventana de hoy; cursadas antes del panel: 1 / nivel de hoy (el del ciclo)",
+  "ead_stage_3": "lineas y tarjetas: lo girado (saldo_utilizado), sin CCF; amortizables: la EAD del mes 1",
+  "decision": "Cami, 2026-09-28 (REVISION_INTEGRAL_GENB.md, seccion 6 #3); la v1 usaba el ano calendario de cursado y el CCF tambien en Stage 3"
  }
 }
